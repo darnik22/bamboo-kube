@@ -1,0 +1,107 @@
+- name: Install misc packages
+  become: yes
+  apt:
+    name: "{{item}}"
+    update_cache: yes
+  with_items:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    - software-properties-common
+    - python3-pip
+- name: Install kubernetes apt key
+  become: yes
+  apt_key:
+    url: "{{item}}"
+  with_items:
+    - https://packages.cloud.google.com/apt/doc/apt-key.gpg
+    - https://download.docker.com/linux/ubuntu/gpg
+- name: Add kubernetes repo
+  become: yes
+  apt_repository:
+    repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+    filename: kubernetes
+- name: Add docker repo
+  become: yes
+  apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+    filename: docker
+- name: Install docker
+  become: yes
+  apt:
+    name: docker-ce
+    update_cache: yes
+- name: Install kubernetes utils
+  become: yes
+  apt:
+    name: "{{item}}"
+  with_items:
+    - kubelet
+    - kubectl
+    - kubeadm
+- name: Download get-helm.sh
+  get_url:
+    url: https://raw.githubusercontent.com/kubernetes/helm/master/scripts/get
+    dest: /tmp/get-helm.sh
+    mode: 0500
+- name: Run get-helm.sh
+  become: yes
+  shell: /tmp/get-helm.sh
+- name: Initialize kubernetes
+  become: yes
+  shell: kubeadm init
+  ignore_errors: yes
+- name: Create .kube
+  file:
+    name: "{{ansible_user_dir}}/.kube"
+    state: directory
+- name: Copy kube creds
+  become: yes
+  shell: "cp /etc/kubernetes/admin.conf {{ansible_user_dir}}/.kube/config"
+- name: Change owner of .kube/config
+  become: yes
+  file:
+    path: "{{ansible_user_dir}}/.kube/config"
+    owner: "{{ansible_user_id}}"
+    group: "{{ansible_user_gid}}"
+- name: Install weave
+  shell: kubectl apply -f "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"
+- name: Allowing master to run pods
+  shell: kubectl taint nodes --all node-role.kubernetes.io/master-
+  ignore_errors: yes
+- name: Create clusterrolebinding for cluster-admin
+  shell: kubectl create clusterrolebinding serviceaccounts-cluster-admin --clusterrole=cluster-admin --group=system:serviceaccounts
+  ignore_errors: yes
+- name: Init helm
+  shell: helm init
+- name: Wait for tiller
+  command: helm ls
+  register: res
+  until: res.rc == 0
+  retries: 10
+  delay: 5
+- name: Copy docker config.json
+  become: yes
+  copy:
+    src: config.json
+    dest: /config.json
+- name: Restart kubelet
+  become: yes
+  systemd:
+    name: kubelet
+    state: restarted
+- name: Install python3 libs
+  become: yes
+  pip:
+    name: "{{item}}"
+    executable: pip3
+  with_items:
+    - setuptools
+    - wheel
+    - timeouts
+    - pytest
+    - termcolor
+    - kubernetes
+    - pyperclip
+    - console
+    
